@@ -170,6 +170,255 @@ app.post('/api/customers/login', async (req, res) => {
   }
 });
 
+// Test route to verify trip routes are working
+app.get('/api/trips-test', (req, res) => {
+  res.json({ message: 'Trip routes are loading correctly' });
+});
+
+// Create a new trip
+app.post('/api/trips', async (req, res) => {
+  try {
+    const { 
+      customer_name, 
+      pickup_location, 
+      dropoff_location, 
+      trip_date, 
+      trip_time, 
+      vehicle_type, 
+      passengers, 
+      description, 
+      contact_number1, 
+      contact_number2, 
+      driver_name 
+    } = req.body;
+
+    // Check for required fields
+    if (!pickup_location || !dropoff_location || !trip_date || !trip_time || !vehicle_type || !passengers || !contact_number1) {
+      return res.status(400).json({ message: 'Missing required trip information' });
+    }
+
+    // Validate passenger count
+    if (passengers <= 0) {
+      return res.status(400).json({ message: 'Passenger count must be greater than zero' });
+    }
+
+    const [result] = await pool.execute(
+      `INSERT INTO trip (
+        customer_name, 
+        pickup_location, 
+        dropoff_location, 
+        trip_date, 
+        trip_time, 
+        vehicle_type, 
+        passengers, 
+        description, 
+        contact_number1, 
+        contact_number2, 
+        driver_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        customer_name, 
+        pickup_location, 
+        dropoff_location, 
+        trip_date, 
+        trip_time, 
+        vehicle_type, 
+        passengers, 
+        description, 
+        contact_number1, 
+        contact_number2, 
+        driver_name
+      ]
+    );
+
+    res.status(201).json({
+      trip_id: result.insertId,
+      customer_name,
+      pickup_location,
+      dropoff_location,
+      trip_date,
+      trip_time,
+      vehicle_type,
+      passengers,
+      description,
+      contact_number1,
+      contact_number2,
+      driver_name,
+      confirmation_status: false,
+      created_at: new Date()
+    });
+  } catch (error) {
+    console.error('Error creating trip:', error);
+    res.status(500).json({ message: 'Error creating trip', error: error.message });
+  }
+});
+
+// Get trips by driver name - Put this specific route BEFORE the general /:id route
+app.get('/api/trips/driver/:name', async (req, res) => {
+  try {
+    const driverName = req.params.name;
+    const [rows] = await pool.execute('SELECT * FROM trip WHERE driver_name = ?', [driverName]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching trips by driver:', error);
+    res.status(500).json({ message: 'Error fetching trips by driver', error: error.message });
+  }
+});
+
+// Get all trips
+app.get('/api/trips', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM trip');
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching trips:', error);
+    res.status(500).json({ message: 'Error fetching trips', error: error.message });
+  }
+});
+
+// Get a trip by ID - Note this comes AFTER the /driver/:name route
+app.get('/api/trips/:id', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM trip WHERE trip_id = ?', [req.params.id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching trip:', error);
+    res.status(500).json({ message: 'Error fetching trip', error: error.message });
+  }
+});
+
+// Update a trip
+app.put('/api/trips/:id', async (req, res) => {
+  try {
+    const { 
+      customer_name, 
+      pickup_location, 
+      dropoff_location, 
+      trip_date, 
+      trip_time, 
+      vehicle_type, 
+      passengers, 
+      description, 
+      contact_number1, 
+      contact_number2, 
+      driver_name,
+      confirmation_status
+    } = req.body;
+    
+    const tripId = req.params.id;
+
+    // Check if trip exists
+    const [checkRows] = await pool.execute('SELECT trip_id FROM trip WHERE trip_id = ?', [tripId]);
+
+    if (checkRows.length === 0) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    await pool.execute(
+      `UPDATE trip SET 
+        customer_name = ?, 
+        pickup_location = ?, 
+        dropoff_location = ?, 
+        trip_date = ?, 
+        trip_time = ?, 
+        vehicle_type = ?, 
+        passengers = ?, 
+        description = ?, 
+        contact_number1 = ?, 
+        contact_number2 = ?, 
+        driver_name = ?,
+        confirmation_status = ?
+      WHERE trip_id = ?`,
+      [
+        customer_name, 
+        pickup_location, 
+        dropoff_location, 
+        trip_date, 
+        trip_time, 
+        vehicle_type, 
+        passengers, 
+        description, 
+        contact_number1, 
+        contact_number2, 
+        driver_name,
+        confirmation_status !== undefined ? confirmation_status : false,
+        tripId
+      ]
+    );
+
+    res.json({
+      trip_id: parseInt(tripId),
+      customer_name,
+      pickup_location,
+      dropoff_location,
+      trip_date,
+      trip_time,
+      vehicle_type,
+      passengers,
+      description,
+      contact_number1,
+      contact_number2,
+      driver_name,
+      confirmation_status: confirmation_status !== undefined ? confirmation_status : false
+    });
+  } catch (error) {
+    console.error('Error updating trip:', error);
+    res.status(500).json({ message: 'Error updating trip', error: error.message });
+  }
+});
+
+// Delete a trip
+app.delete('/api/trips/:id', async (req, res) => {
+  try {
+    const tripId = req.params.id;
+
+    const [result] = await pool.execute('DELETE FROM trip WHERE trip_id = ?', [tripId]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting trip:', error);
+    res.status(500).json({ message: 'Error deleting trip', error: error.message });
+  }
+});
+
+// Update trip confirmation status
+app.patch('/api/trips/:id/confirm', async (req, res) => {
+  try {
+    const tripId = req.params.id;
+    const { confirmation_status } = req.body;
+
+    if (confirmation_status === undefined) {
+      return res.status(400).json({ message: 'Confirmation status is required' });
+    }
+
+    const [result] = await pool.execute(
+      'UPDATE trip SET confirmation_status = ? WHERE trip_id = ?',
+      [confirmation_status, tripId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Trip not found' });
+    }
+
+    res.json({ 
+      trip_id: parseInt(tripId), 
+      confirmation_status 
+    });
+  } catch (error) {
+    console.error('Error updating trip confirmation:', error);
+    res.status(500).json({ message: 'Error updating trip confirmation', error: error.message });
+  }
+});
+
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
